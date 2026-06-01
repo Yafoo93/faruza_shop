@@ -20,6 +20,7 @@ class SaleItem extends Model
     ];
 
     protected $casts = [
+        'quantity' => 'integer',
         'unit_price' => 'decimal:2',
         'line_total' => 'decimal:2',
     ];
@@ -31,6 +32,9 @@ class SaleItem extends Model
 
     public function product()
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo(Product::class)->withDefault([
+            'name' => $this->product_name,
+            'sku' => $this->product_sku,
+        ]);
     }
 }

@@ -25,6 +25,8 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/sales', [SaleController::class, 'index']);
+    Route::get('/sales/{sale}', [SaleController::class, 'show']);
     Route::post('/sales', [SaleController::class, 'store']);
 });
 

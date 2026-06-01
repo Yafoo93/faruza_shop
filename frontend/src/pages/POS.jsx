@@ -16,6 +16,9 @@ function POS({ user, onSaleCompleted }) {
   const [search, setSearch] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [amountPaid, setAmountPaid] = useState("");
+  const [discountAmount, setDiscountAmount] = useState("");
+  const [notes, setNotes] = useState("");
+  const [receipt, setReceipt] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [message, setMessage] = useState("");
@@ -59,7 +62,10 @@ function POS({ user, onSaleCompleted }) {
   }, [cart]);
 
   const paid = Number(amountPaid || 0);
-  const balance = paid - subtotal;
+  const discount = Math.min(Math.max(Number(discountAmount || 0), 0), subtotal);
+  const total = Math.max(subtotal - discount, 0);
+  const amountReceived = paymentMethod === "cash" ? paid : total;
+  const balance = amountReceived - total;
   const cartCount = cart.reduce((total, item) => total + item.quantity, 0);
 
   function productInCart(productId) {
@@ -69,6 +75,7 @@ function POS({ user, onSaleCompleted }) {
   function addToCart(product) {
     setMessage("");
     setError("");
+    setReceipt(null);
 
     setCart((current) => {
       const existing = current.find((item) => item.id === product.id);
@@ -103,6 +110,8 @@ function POS({ user, onSaleCompleted }) {
   function clearCart() {
     setCart([]);
     setAmountPaid("");
+    setDiscountAmount("");
+    setNotes("");
     setMessage("");
     setError("");
   }
@@ -117,7 +126,12 @@ function POS({ user, onSaleCompleted }) {
       return;
     }
 
-    if (paymentMethod === "cash" && paid < subtotal) {
+    if (discount > subtotal) {
+      setError("Discount cannot be more than the subtotal.");
+      return;
+    }
+
+    if (paymentMethod === "cash" && paid < total) {
       setError("Amount paid is less than the cart total.");
       return;
     }
@@ -128,7 +142,9 @@ function POS({ user, onSaleCompleted }) {
       const payload = {
         cashier_id: user.id,
         payment_method: paymentMethod,
-        amount_paid: paymentMethod === "cash" ? paid : subtotal,
+        amount_paid: amountReceived,
+        discount_amount: discount,
+        notes: notes.trim() || null,
         items: cart.map((item) => ({
           product_id: item.id,
           quantity: item.quantity,
@@ -137,8 +153,11 @@ function POS({ user, onSaleCompleted }) {
 
       const res = await checkoutSale(payload);
       setMessage(`Sale #${res.data.sale.id} completed. Change: GHS ${money(res.data.sale.change_due)}`);
+      setReceipt(res.data.sale);
       setCart([]);
       setAmountPaid("");
+      setDiscountAmount("");
+      setNotes("");
       await fetchProducts();
       onSaleCompleted?.();
     } catch (err) {
@@ -195,7 +214,7 @@ function POS({ user, onSaleCompleted }) {
                   >
                     <span>
                       <strong>{product.name}</strong>
-                      <small>{product.sku} · {product.category}</small>
+                      <small>{product.sku} - {product.category}</small>
                     </span>
                     <span>
                       <strong>GHS {money(product.selling_price)}</strong>
@@ -257,6 +276,22 @@ function POS({ user, onSaleCompleted }) {
               <strong>GHS {money(subtotal)}</strong>
             </div>
             <label>
+              Discount
+              <input
+                min="0"
+                max={subtotal}
+                step="0.01"
+                type="number"
+                value={discountAmount}
+                onChange={(e) => setDiscountAmount(e.target.value)}
+                placeholder="0.00"
+              />
+            </label>
+            <div>
+              <span>Total</span>
+              <strong>GHS {money(total)}</strong>
+            </div>
+            <label>
               Payment method
               <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
                 <option value="cash">Cash</option>
@@ -272,7 +307,17 @@ function POS({ user, onSaleCompleted }) {
                 type="number"
                 value={amountPaid}
                 onChange={(e) => setAmountPaid(e.target.value)}
-                placeholder={money(subtotal)}
+                disabled={paymentMethod !== "cash"}
+                placeholder={money(total)}
+              />
+            </label>
+            <label>
+              Notes
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Optional sale note"
+                rows="3"
               />
             </label>
             <div>
@@ -286,6 +331,66 @@ function POS({ user, onSaleCompleted }) {
           </button>
         </form>
       </section>
+
+      {receipt && (
+        <section className="panel receipt-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Receipt</p>
+              <h3>Sale #{receipt.id}</h3>
+              <p className="muted">
+                {new Date(receipt.created_at).toLocaleString()} by {user.name}
+              </p>
+            </div>
+            <button className="ghost-button" onClick={() => window.print()} type="button">
+              Print
+            </button>
+          </div>
+
+          <div className="receipt-lines">
+            {receipt.items?.map((item) => (
+              <div className="receipt-line" key={item.id}>
+                <span>
+                  <strong>{item.product_name}</strong>
+                  <small>
+                    {item.quantity} x GHS {money(item.unit_price)}
+                  </small>
+                </span>
+                <strong>GHS {money(item.line_total)}</strong>
+              </div>
+            ))}
+          </div>
+
+          <div className="receipt-totals">
+            <div>
+              <span>Subtotal</span>
+              <strong>GHS {money(receipt.subtotal)}</strong>
+            </div>
+            <div>
+              <span>Discount</span>
+              <strong>GHS {money(receipt.discount_amount)}</strong>
+            </div>
+            <div>
+              <span>Total</span>
+              <strong>GHS {money(receipt.total)}</strong>
+            </div>
+            <div>
+              <span>Paid</span>
+              <strong>GHS {money(receipt.amount_paid)}</strong>
+            </div>
+            <div>
+              <span>Change</span>
+              <strong>GHS {money(receipt.change_due)}</strong>
+            </div>
+          </div>
+
+          {receipt.notes && (
+            <p className="receipt-note">
+              <strong>Note:</strong> {receipt.notes}
+            </p>
+          )}
+        </section>
+      )}
     </div>
   );
 }
