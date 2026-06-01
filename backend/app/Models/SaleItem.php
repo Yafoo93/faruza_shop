@@ -15,14 +15,24 @@ class SaleItem extends Model
         'product_name',
         'product_sku',
         'quantity',
+        'refunded_quantity',
         'unit_price',
+        'unit_cost',
         'line_total',
+        'line_profit',
+        'refunded_total',
+        'refunded_profit',
     ];
 
     protected $casts = [
         'quantity' => 'integer',
+        'refunded_quantity' => 'integer',
         'unit_price' => 'decimal:2',
+        'unit_cost' => 'decimal:2',
         'line_total' => 'decimal:2',
+        'line_profit' => 'decimal:2',
+        'refunded_total' => 'decimal:2',
+        'refunded_profit' => 'decimal:2',
     ];
 
     public function sale()

@@ -35,4 +35,9 @@ class StockHistory extends Model
     {
         return $this->belongsTo(User::class, 'restocked_by');
     }
+
+    public function restockedBy()
+    {
+        return $this->belongsTo(User::class, 'restocked_by');
+    }
 }

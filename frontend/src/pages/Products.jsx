@@ -38,6 +38,7 @@ function ProductList({ user, onProductsChanged }) {
   const [editingId, setEditingId] = useState(null);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
+  const [productStatus, setProductStatus] = useState("active");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -52,7 +53,9 @@ function ProductList({ user, onProductsChanged }) {
     setError("");
 
     try {
-      const res = await api.get("/products");
+      const res = await api.get("/products", {
+        params: isAdmin ? { status: productStatus } : undefined,
+      });
       setProducts(res.data);
     } catch (err) {
       setError("Could not load products. Check that the Laravel API is running.");
@@ -60,6 +63,10 @@ function ProductList({ user, onProductsChanged }) {
       setIsLoading(false);
     }
   }
+
+  useEffect(() => {
+    fetchProducts();
+  }, [productStatus]);
 
   const categories = useMemo(() => {
     const unique = products
@@ -162,8 +169,8 @@ function ProductList({ user, onProductsChanged }) {
     }
   }
 
-  async function deleteProduct(product) {
-    const confirmed = window.confirm(`Delete ${product.name}?`);
+  async function archiveProduct(product) {
+    const confirmed = window.confirm(`Archive ${product.name}?`);
     if (!confirmed) return;
 
     setError("");
@@ -171,11 +178,25 @@ function ProductList({ user, onProductsChanged }) {
 
     try {
       await api.delete(`/products/${product.id}`);
-      setMessage("Product deleted.");
+      setMessage("Product archived.");
       await fetchProducts();
       onProductsChanged?.();
     } catch (err) {
-      setError("Could not delete product.");
+      setError("Could not archive product.");
+    }
+  }
+
+  async function restoreProduct(product) {
+    setError("");
+    setMessage("");
+
+    try {
+      await api.post(`/products/${product.id}/restore`);
+      setMessage("Product restored.");
+      await fetchProducts();
+      onProductsChanged?.();
+    } catch (err) {
+      setError("Could not restore product.");
     }
   }
 
@@ -326,10 +347,10 @@ function ProductList({ user, onProductsChanged }) {
             <h3>Product list</h3>
             <p className="muted">{filteredProducts.length} product(s) shown</p>
           </div>
-          <div className="toolbar-controls">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+            <div className={isAdmin ? "toolbar-controls products-toolbar" : "toolbar-controls"}>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
               placeholder="Search name, SKU, category"
             />
             <select value={category} onChange={(e) => setCategory(e.target.value)}>
@@ -339,6 +360,13 @@ function ProductList({ user, onProductsChanged }) {
                 </option>
               ))}
             </select>
+            {isAdmin && (
+              <select value={productStatus} onChange={(e) => setProductStatus(e.target.value)}>
+                <option value="active">Active products</option>
+                <option value="archived">Archived products</option>
+                <option value="all">All products</option>
+              </select>
+            )}
           </div>
         </div>
 
@@ -369,6 +397,7 @@ function ProductList({ user, onProductsChanged }) {
                   <tr key={product.id}>
                     <td>
                       <strong>{product.name}</strong>
+                      {product.archived_at && <span className="subtext warning-text">Archived</span>}
                       {product.expiry_date && (
                         <span className="subtext">Expires {dateInputValue(product.expiry_date)}</span>
                       )}
@@ -389,9 +418,15 @@ function ProductList({ user, onProductsChanged }) {
                           <button className="ghost-button" onClick={() => startEdit(product)}>
                             Edit
                           </button>
-                          <button className="danger-button" onClick={() => deleteProduct(product)}>
-                            Delete
-                          </button>
+                          {product.archived_at ? (
+                            <button className="ghost-button" onClick={() => restoreProduct(product)}>
+                              Restore
+                            </button>
+                          ) : (
+                            <button className="danger-button" onClick={() => archiveProduct(product)}>
+                              Archive
+                            </button>
+                          )}
                         </div>
                       </td>
                     )}

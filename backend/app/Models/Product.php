@@ -19,11 +19,23 @@ class Product extends Model
         'min_stock_threshold',
         'expiry_date',
         'image',
+        'archived_at',
     ];
 
     protected $casts = [
         'cost_price' => 'decimal:2',
         'selling_price' => 'decimal:2',
         'expiry_date' => 'date',
+        'archived_at' => 'datetime',
     ];
+
+    public function saleItems()
+    {
+        return $this->hasMany(SaleItem::class);
+    }
+
+    public function stockHistories()
+    {
+        return $this->hasMany(StockHistory::class);
+    }
 }

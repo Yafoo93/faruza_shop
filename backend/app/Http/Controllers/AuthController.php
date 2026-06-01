@@ -24,6 +24,12 @@ class AuthController extends Controller
             ]);
         }
 
+        if ($user->disabled_at) {
+            throw ValidationException::withMessages([
+                'email' => ['This account is disabled.'],
+            ]);
+        }
+
         $token = $user->createToken('auth-token')->plainTextToken;
 
         return response()->json([

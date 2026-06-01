@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
+import { getCustomers } from "../services/customers";
 import { checkoutSale } from "../services/sales";
 
 function money(value) {
@@ -12,10 +13,16 @@ function availableStock(product) {
 
 function POS({ user, onSaleCompleted }) {
   const [products, setProducts] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [amountPaid, setAmountPaid] = useState("");
+  const [customerMode, setCustomerMode] = useState("new");
+  const [customerId, setCustomerId] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
   const [discountAmount, setDiscountAmount] = useState("");
   const [notes, setNotes] = useState("");
   const [receipt, setReceipt] = useState(null);
@@ -26,6 +33,7 @@ function POS({ user, onSaleCompleted }) {
 
   useEffect(() => {
     fetchProducts();
+    fetchCustomers();
   }, []);
 
   async function fetchProducts() {
@@ -39,6 +47,15 @@ function POS({ user, onSaleCompleted }) {
       setError("Could not load products. Check that the Laravel API is running.");
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function fetchCustomers() {
+    try {
+      const res = await getCustomers({ status: "all", per_page: 100 });
+      setCustomers(res.data.customers?.data || []);
+    } catch (err) {
+      setCustomers([]);
     }
   }
 
@@ -64,8 +81,9 @@ function POS({ user, onSaleCompleted }) {
   const paid = Number(amountPaid || 0);
   const discount = Math.min(Math.max(Number(discountAmount || 0), 0), subtotal);
   const total = Math.max(subtotal - discount, 0);
-  const amountReceived = paymentMethod === "cash" ? paid : total;
+  const amountReceived = paymentMethod === "cash" || paymentMethod === "credit" ? paid : total;
   const balance = amountReceived - total;
+  const creditBalance = paymentMethod === "credit" ? Math.max(total - amountReceived, 0) : 0;
   const cartCount = cart.reduce((total, item) => total + item.quantity, 0);
 
   function productInCart(productId) {
@@ -112,6 +130,11 @@ function POS({ user, onSaleCompleted }) {
     setAmountPaid("");
     setDiscountAmount("");
     setNotes("");
+    setCustomerMode("new");
+    setCustomerId("");
+    setCustomerName("");
+    setCustomerPhone("");
+    setCustomerEmail("");
     setMessage("");
     setError("");
   }
@@ -136,6 +159,23 @@ function POS({ user, onSaleCompleted }) {
       return;
     }
 
+    if (paymentMethod === "credit") {
+      if (creditBalance <= 0) {
+        setError("Credit sale must leave an unpaid balance.");
+        return;
+      }
+
+      if (customerMode === "existing" && !customerId) {
+        setError("Select the customer taking the credit.");
+        return;
+      }
+
+      if (customerMode === "new" && (!customerName.trim() || !customerPhone.trim())) {
+        setError("Customer name and phone are required for credit sales.");
+        return;
+      }
+    }
+
     setIsCheckingOut(true);
 
     try {
@@ -145,6 +185,10 @@ function POS({ user, onSaleCompleted }) {
         amount_paid: amountReceived,
         discount_amount: discount,
         notes: notes.trim() || null,
+        customer_id: customerMode === "existing" && customerId ? Number(customerId) : null,
+        customer_name: customerMode === "new" ? customerName.trim() : null,
+        customer_phone: customerMode === "new" ? customerPhone.trim() : null,
+        customer_email: customerMode === "new" ? customerEmail.trim() || null : null,
         items: cart.map((item) => ({
           product_id: item.id,
           quantity: item.quantity,
@@ -152,13 +196,23 @@ function POS({ user, onSaleCompleted }) {
       };
 
       const res = await checkoutSale(payload);
-      setMessage(`Sale #${res.data.sale.id} completed. Change: GHS ${money(res.data.sale.change_due)}`);
+      setMessage(
+        paymentMethod === "credit"
+          ? `Credit sale #${res.data.sale.id} completed. Debt: GHS ${money(res.data.sale.credit_amount)}`
+          : `Sale #${res.data.sale.id} completed. Change: GHS ${money(res.data.sale.change_due)}`
+      );
       setReceipt(res.data.sale);
       setCart([]);
       setAmountPaid("");
       setDiscountAmount("");
       setNotes("");
+      setCustomerMode("new");
+      setCustomerId("");
+      setCustomerName("");
+      setCustomerPhone("");
+      setCustomerEmail("");
       await fetchProducts();
+      await fetchCustomers();
       onSaleCompleted?.();
     } catch (err) {
       const apiMessage = err.response?.data?.message;
@@ -297,17 +351,57 @@ function POS({ user, onSaleCompleted }) {
                 <option value="cash">Cash</option>
                 <option value="mobile_money">Mobile money</option>
                 <option value="card">Card</option>
+                <option value="credit">Credit</option>
               </select>
             </label>
+            {paymentMethod === "credit" && (
+              <div className="credit-checkout-panel">
+                <label>
+                  Customer
+                  <select value={customerMode} onChange={(event) => setCustomerMode(event.target.value)}>
+                    <option value="new">New customer</option>
+                    <option value="existing">Existing customer</option>
+                  </select>
+                </label>
+                {customerMode === "existing" ? (
+                  <label>
+                    Select customer
+                    <select value={customerId} onChange={(event) => setCustomerId(event.target.value)}>
+                      <option value="">Choose customer</option>
+                      {customers.map((customer) => (
+                        <option key={customer.id} value={customer.id}>
+                          {customer.name} {customer.phone ? `- ${customer.phone}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <>
+                    <label>
+                      Customer name
+                      <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
+                    </label>
+                    <label>
+                      Customer phone
+                      <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
+                    </label>
+                    <label>
+                      Customer email
+                      <input type="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} />
+                    </label>
+                  </>
+                )}
+              </div>
+            )}
             <label>
-              Amount paid
+              {paymentMethod === "credit" ? "Amount paid now" : "Amount paid"}
               <input
                 min="0"
                 step="0.01"
                 type="number"
                 value={amountPaid}
                 onChange={(e) => setAmountPaid(e.target.value)}
-                disabled={paymentMethod !== "cash"}
+                disabled={paymentMethod !== "cash" && paymentMethod !== "credit"}
                 placeholder={money(total)}
               />
             </label>
@@ -321,8 +415,10 @@ function POS({ user, onSaleCompleted }) {
               />
             </label>
             <div>
-              <span>{balance >= 0 ? "Change due" : "Balance"}</span>
-              <strong className={balance < 0 ? "negative-balance" : ""}>GHS {money(Math.abs(balance))}</strong>
+              <span>{paymentMethod === "credit" ? "Customer debt" : balance >= 0 ? "Change due" : "Balance"}</span>
+              <strong className={balance < 0 || creditBalance > 0 ? "negative-balance" : ""}>
+                GHS {money(paymentMethod === "credit" ? creditBalance : Math.abs(balance))}
+              </strong>
             </div>
           </div>
 
@@ -378,6 +474,12 @@ function POS({ user, onSaleCompleted }) {
               <span>Paid</span>
               <strong>GHS {money(receipt.amount_paid)}</strong>
             </div>
+            {Number(receipt.credit_amount || 0) > 0 && (
+              <div>
+                <span>Customer debt</span>
+                <strong>GHS {money(receipt.credit_amount)}</strong>
+              </div>
+            )}
             <div>
               <span>Change</span>
               <strong>GHS {money(receipt.change_due)}</strong>
